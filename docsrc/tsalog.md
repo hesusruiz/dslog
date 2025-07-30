@@ -43,24 +43,24 @@ The security issues mirror those of Certificate Authorities (CAs), which led to 
   
 ```mermaid
 flowchart TD
-  A[Client] --> B[Submit RFC3161 Timestamp Request HTTP POST]
+  A[Client] --> B[Submit RFC3161 Timestamp Request]
   B --> C[TSA Server]
-  C --> D[Parse TimeStampReq with digitorus/timestamp]
+  C --> D[Parse TimeStampReq with digitorus timestamp]
   D --> E[Construct Merkle Leaf]
   E --> F[Submit Leaf to Tessera Log]
   F --> G[Tessera returns Log Index]
   G --> H[Create TimeStampResp with Log Index Extension]
   H --> I[Return TimeStampResp to Client]
 
-  subgraph "Log Publishing"
-    F --> J[Log Tiles Stored (HTTP/S3)]
-    K[Periodic Signed Tree Head (STH)] --> L[ISBE Witness]
-    L --> M[Anchor Checkpoint on Blockchain (QBFT)]
+  subgraph Log Publishing
+    F --> J[Log Tiles Stored]
+    K[Periodic Signed Tree Head] --> L[ISBE Witness]
+    L --> M[Anchor Checkpoint on Blockchain]
   end
 
-  subgraph "Inclusion Proof Verification"
+  subgraph Inclusion Proof Verification
     N[Client retrieves tiles] --> O[Client builds Merkle Proof]
-    O --> P[Verify Proof against Blockchain-anchored STH]
+    O --> P[Verify Proof against Blockchain anchored STH]
   end
 
   I --> N
