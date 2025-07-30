@@ -43,7 +43,7 @@ The security issues mirror those of Certificate Authorities (CAs), which led to 
   
 ```mermaid
 flowchart TD
-  A[Client] --> B[Submit RFC3161 Timestamp Request (HTTP POST)]
+  A[Client] --> B[Submit RFC3161 Timestamp Request HTTP POST]
   B --> C[TSA Server]
   C --> D[Parse TimeStampReq with digitorus/timestamp]
   D --> E[Construct Merkle Leaf]
