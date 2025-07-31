@@ -24,7 +24,7 @@ Traditional timestamping services, while providing proof of existence at a speci
 
 6. **Trust Minimization:** Reduce the need for absolute trust in any single entity (TSA or log operator) by relying on cryptographic proofs and a distributed, verifiable ledger.
 
-## Beyond Global Order: Why DSLog's Partial Order is a Better Fit for Traceability
+## Beyond Global Order: Why Partial Order is a Better Fit for Traceability
 
 A common but naive approach to building decentralized logging systems is to write every single entry as a transaction on a blockchain. While this seems to offer maximum security, it introduces fundamental architectural constraints that are both unnecessary and detrimental for most real-world traceability use cases, which are not related to cryptocurrencies.
 
@@ -35,7 +35,7 @@ A common but naive approach to building decentralized logging systems is to writ
     * We need to prove that an event happened _before_ a certain point in time (e.g., before a compliance audit).
     * We do _not_ need to know whether an event in Factory A happened before or after an unrelated event in Factory B that occurred at roughly the same time. These events are concurrent and are not causally related.
 
-* **DSLog's Natively Concurrent Architecture:** The DSLog architecture embraces this reality. By supporting multiple, independent logs (as described in the federation model), it allows for concurrent event streams.
+* **DSLog's Natively Concurrent Architecture:** The DSLog architecture embraces this reality. By supporting multiple, independent logs (as described in the scalability model), it allows for concurrent event streams.
     * Each log provides a strict, total order for its own entries, which is perfect for context-specific traceability.
     * The ecosystem as a whole operates on a partial order. All logs are periodically anchored to the same blockchain, creating common points in time for cross-log synchronization, but they are not forced into a single, slow-moving queue.
 
@@ -45,25 +45,25 @@ This approach avoids the scalability limitations of writing everything on-chain 
 
 A key design advantage of DSLog is its ability to provide strong, blockchain-backed trust guarantees without incurring the performance and cost penalties of writing every entry directly to a blockchain.
 
-* **High-Throughput Ingestion:** The core log operations (adding entries) are handled by the highly optimized Tessera log, which can ingest thousands of entries per second. This is orders of magnitude faster than the transaction throughput of most blockchain networks. Writing to the log is a fast, local operation, decoupled from blockchain consensus latency.
+* **High-Throughput Ingestion:** The core log operations (adding entries) are handled by the highly optimized Tessera log, where a single log instance can ingest thousands of entries per second. This is orders of magnitude faster than the transaction throughput of most blockchain networks. Writing to the log is a fast, local operation, decoupled from blockchain consensus latency.
 
-* **Batching via Blockchain Anchoring:** Instead of committing each timestamp individually, DSLog batches thousands of entries into a single cryptographic commitment—the Signed Tree Head (STH). Only this small, constant-size STH is periodically written to the ISBE Blockchain. This dramatically reduces on-chain traffic, transaction fees, and storage requirements.
+* **Batching via Blockchain Anchoring:** Instead of committing each timestamp individually, DSLog batches thousands of entries into a single cryptographic commitment—the Signed Tree Head (STH) or Checkpoint. Only this small, constant-size Checkpoint is periodically written to the ISBE Blockchain. This dramatically reduces on-chain traffic, transaction fees, and storage requirements.
 
 * **Preserving Trust Properties:** This batching mechanism does not compromise trust. The Merkle tree structure ensures that the STH is a commitment to _every single entry_ in the batch. Any attempt to tamper with a past entry would change the STH, which would be detected during verification against the immutable anchor on the blockchain. Global consistency is still guaranteed by the blockchain-anchored checkpoints.
 
 * **Scalable Client-Side Verification:** The Tiled Transparency Log API offloads the work of generating inclusion proofs from the server to the client. Clients can efficiently download only the small pieces of the Merkle tree ("tiles") they need to verify their entries, making the verification process highly scalable and placing minimal load on the central log server.
 
-* **Ecosystem Scalability via many logs:** The DSLog architecture is not monolithic. The entire ecosystem can scale horizontally by deploying multiple, independent log instances. Different operators can run logs for general use or for specific use cases (e.g., a dedicated log for a healthcare consortium, another for a financial services network). Each of these logs operates independently at high speed, anchoring its own checkpoints to the shared ISBE Blockchain. This federated model allows the total system throughput to grow linearly with the number of logs, providing massive scalability and specialization without creating a central bottleneck.
+* **Ecosystem Scalability via many logs:** The DSLog architecture is not monolithic. The entire ecosystem can scale horizontally by deploying multiple, independent log instances. Different operators can run logs for general use or for specific use cases (e.g., a dedicated log for a healthcare consortium, another for a financial services network). Each of these logs operates independently at high speed, anchoring its own checkpoints to the shared ISBE Blockchain. This concurrent log model allows the total system throughput to grow linearly with the number of logs, providing massive scalability and specialization without creating a central bottleneck.
 
 In summary, DSLog achieves the "best of both worlds": **the high performance and low latency of a centralized log for write operations, combined with the decentralized, tamper-evident trust and global consistency of a blockchain for verification and auditing**.
 
 ## Properties Provided by DSLog
 
-* **Timestamped Proof of Inclusion:** Clients gain cryptographic proof that their data existed at a specific time (from the RFC 3161 token) AND was included in a public, verifiable log (from the Checkpoint anchored to the blockchain).
+* **Timestamped Proof of Inclusion:** Clients obtain cryptographic proof that their data existed at a specific time (from the RFC 3161 token) AND was included in a public, verifiable log (from the Checkpoint anchored to the blockchain).
 
-* **Global Consistency:** The ISBE Blockchain anchoring of STHs prevents "split-view attacks," ensuring all users eventually observe the same, consistent view of the log's contents.
+* **Global Consistency:** The ISBE Blockchain anchoring of Checkpoints prevents "split-view attacks," ensuring all users eventually observe the same, consistent view of the log's contents.
 
-* **Auditability & Transparency:** Any party can independently audit the log's integrity and verify entries by fetching tiles and checking against blockchain-committed STHs.
+* **Auditability & Transparency:** Any party can independently audit the log's integrity and verify entries by fetching tiles and checking against blockchain-committed Checkpoints.
 
 * **Non-Censorship / Non-Denial:** Once an entry is accepted and its index returned, the log operator cannot deny its inclusion without being cryptographically detected.
 
@@ -75,11 +75,11 @@ In summary, DSLog achieves the "best of both worlds": **the high performance and
 
 ## Log Replication, Availability, and Censorship Resistance
 
-To further enhance the robustness of the ecosystem, a DSLog instance can be replicated by independent, third-party **mirrors**. These mirrors operate by fetching the log's tiles, verifying their consistency against the STHs anchored on the ISBE Blockchain, and serving them to clients. This model, inspired by the [C2SP Transparency Log Mirror Protocol](https://github.com/C2SP/C2SP/blob/main/tlog-mirror.md), provides several key advantages:
+To further enhance the robustness of the ecosystem, a DSLog instance can be replicated by independent, third-party **mirrors**. These mirrors operate by fetching the log's tiles, verifying their consistency against the Checkpoints anchored on the ISBE Blockchain, and serving them to clients. This model, based on the [C2SP Transparency Log Mirror Protocol](https://github.com/C2SP/C2SP/blob/main/tlog-mirror.md), provides several key advantages:
 
-* **High Availability and Redundancy:** If the primary log operator's server becomes unavailable, clients can seamlessly switch to fetching log tiles from one or more independent mirrors. This ensures that the verification process is not dependent on a single point of failure.
+* **High Availability and Redundancy:** If the primary log operator's server becomes unavailable, clients can seamlessly switch to fetching log tiles from one or more independent mirrors. This ensures that the verification process is not dependent on a single point of failure. Anyone can operate a mirror (they do not have to be trusted entities), and it is cheap to operate, so each use case can choose its desired reliability level.
 
-* **Censorship Resistance:** Mirrors provide a powerful defense against censorship. If a malicious primary operator attempts to hide an entry by refusing to serve its corresponding tiles to a specific user, that user can retrieve the same tiles from a mirror. Since all mirrors are cryptographically bound to the same public history on the blockchain, any attempt by the primary log to present an inconsistent or incomplete view is easily detected.
+* **Censorship Resistance:** Mirrors provide defense against censorship. If a malicious primary operator attempts to hide an entry by refusing to serve its corresponding tiles to a specific user, that user can retrieve the same tiles from a mirror. Since all mirrors are cryptographically bound to the same public history on the blockchain, any attempt by the primary log to present an inconsistent or incomplete view is easily detected.
 
 * **Improved Performance and Scalability:** By distributing the load of serving log tiles across multiple geographically diverse mirrors, the system can serve a larger number of clients with lower latency.
 
@@ -104,7 +104,7 @@ This model provides a robust solution for maintaining a tamper-evident, auditabl
 
 ## The DSLog Approach: A Hybrid Model
 
-DSLog operates as a "personality" of a transparent log, integrating several key components:
+The timestamping service operates as a "personality" of a transparent log, integrating several key components:
 
 * **RFC 3161 TSA Personality:** This component acts as the primary interface for clients. It receives standard RFC 3161 `TimeStampReq` messages, verifies that they comply with the standard, processes them, and issues `TimeStampResp` tokens.
 
@@ -228,21 +228,19 @@ This is one of the most critical threats to a timestamping service.
 
 ### Other Threats and Mitigations
 
-* **Log Tampering (Retroactive Modification):** Any attempt to alter or delete a past entry in the Tessera log would change its leaf hash, which would ripple up the Merkle tree and result in a different `RootHash`. This new `RootHash` would not match the one already anchored on the immutable ISBE Blockchain, making the tampering immediately obvious to any verifier.
+* **Log Tampering (Retroactive Modification):** Any attempt to alter or delete a past entry in the Tessera log would change its leaf hash, which would ripple up the Merkle tree and result in a different `RootHash`. This new `RootHash` would not match the one already anchored on the immutable ISBE Blockchain (via the Checkpoint), making the tampering immediately obvious to any verifier.
 
 * **Log Equivocation (Split-View Attack):** A malicious log operator might try to show different versions of the log to different users. The ISBE Witness and the blockchain anchor prevent this. The Witness only accepts STHs that are consistent extensions of the previous STH it has seen. Since the sequence of STHs is recorded on the public blockchain, all users can converge on a single, globally consistent view of the log's history.
 
-* **Entry Omission / Censorship:** If a client receives a `TimeStampResp` with a `logIndex` but can never find the entry in the public log or generate a valid inclusion proof, it serves as evidence of misbehavior. The client can prove they submitted the request and received an acknowledgment, holding the operator accountable.
+* **Entry Omission / Censorship:** If a client receives a `TimeStampResp` with a `logIndex` but can never find the entry in the public log or generate a valid inclusion proof, it serves as evidence of misbehavior. The client can prove they submitted the request and received an acknowledgment, holding the operator accountable because the `TimeStampResp` is signed with a private key associated to the identity of the log operator.
 
-
-
-## Pathway to eIDAS Qualified Timestamping Services
+## Implementing eIDAS Qualified Timestamping Services
 
 The robust architecture of DSLog provides a strong technical foundation for entities aspiring to become a **Qualified Trust Service Provider (QTSP)** for timestamping under the EU's **eIDAS Regulation (EU) No 910/2014**. Qualified timestamps have a presumed legal effect across all EU member states, making them suitable for high-stakes legal, financial, and regulatory use cases.
 
 While achieving full QTSP status involves rigorous organizational audits and procedural controls, DSLog's design directly addresses and often exceeds the technical requirements outlined in relevant ETSI standards, such as **ETSI EN 319 422 ("Time-stamping protocol and time-stamp profiles")**.
 
-Here is how DSLog's features map to the principles of a Qualified Timestamping Service:
+A mapping of DSLog's features to the principles of a Qualified Timestamping Service follows:
 
 * **Enhanced Integrity and Non-Repudiation:** The ETSI standards require strong protections against forgery and alteration of timestamps. DSLog's core RFC 3161 compliance meets the baseline, but the addition of the transparent log provides a superior, publicly verifiable layer of integrity. Any attempt to issue a fraudulent timestamp or tamper with the log's history becomes cryptographically detectable by any third party, offering a level of non-repudiation that is far stronger than traditional, opaque systems.
 
@@ -253,7 +251,6 @@ Here is how DSLog's features map to the principles of a Qualified Timestamping S
 * **High Availability and Reliability:** The architecture's support for independent mirrors and its reliance on a distributed blockchain network for anchoring contribute directly to the high-availability and disaster recovery requirements mandated for qualified services.
 
 In summary, DSLog provides the advanced cryptographic and architectural mechanisms to build a timestamping service that is not only compliant but also demonstrably more trustworthy and resilient than what is minimally required. An organization can leverage DSLog as the core of its technical infrastructure, focusing its remaining efforts on the necessary organizational, physical security, and legal procedures to achieve full QTSP certification.
-
 
 ## Economic and Governance Models
 
@@ -295,7 +292,7 @@ A client application would typically perform the following steps:
 
 1. **Generate Data Hash:**
 
-   ```
+   ```go
    data := []byte("My important document content.")
    hasher := sha256.New()
    hasher.Write(data)
@@ -304,7 +301,7 @@ A client application would typically perform the following steps:
 
 2. **Create RFC 3161 TimeStamp Request:**
 
-   ```
+   ```go
    // Using github.com/digitorus/timestamp
    req, err := timestamp.CreateRequest(digest, nil) // Or with nonce/certReq options
    // ... handle error ...
@@ -312,7 +309,7 @@ A client application would typically perform the following steps:
 
 3. **Send Request to DSLog TSA:**
 
-   ```
+   ```go
    // HTTP POST to http://dslog.example.com/tsa
    // Set Content-Type: application/timestamp-query
    // Send req bytes in body
@@ -322,7 +319,7 @@ A client application would typically perform the following steps:
 
 4. **Parse Response and Extract Log Index:**
 
-   ```
+   ```go
    tsRespBytes, err := io.ReadAll(resp.Body)
    // ... handle error ...
    ts, err := timestamp.ParseResponse(tsRespBytes)
@@ -342,11 +339,11 @@ A client application would typically perform the following steps:
 
 5. **Later: Obtain Trusted STH (from ISBE Blockchain):**
 
-   * This step involves interacting with the ISBE Blockchain (e.g., via a BESU client or a dedicated API) to retrieve a recent, trusted Signed Tree Head (STH) that has been committed by the ISBE Witness. The STH will provide a `TreeSize` and `RootHash`.
+   * This step involves interacting with the ISBE Blockchain (e.g., via a BESU client or a dedicated API) to retrieve a recent, trusted Checkpoint (Signed Tree Head or STH) that has been committed by the ISBE Witness. The STH will provide a `TreeSize` and `RootHash`.
 
 6. **Later: Retrieve Log Tiles and Verify Inclusion Proof:**
 
-   * Using the `logIndex` and the `TreeSize` from the trusted STH, the client calculates the necessary tile URLs according to the `tlog-tiles.md` specification.
+   * Using the `logIndex` and the `TreeSize` from the trusted STH, the client calculates the necessary tile URLs according to the [Tiled Transparency Logs](https://github.com/C2SP/C2SP/blob/main/tlog-tiles.md) specification.
 
    * The client fetches these tiles from the public log server (e.g., `http://tlog.example.com/tile/...`).
 
@@ -355,6 +352,8 @@ A client application would typically perform the following steps:
 ## Deployment Considerations
 
 * **Secure Key Management:** Robust handling of the TSA's signing key and the Tessera checkpoint signing key is paramount (e.g., using HSMs).
+
+* **Authentication of the write and read APIs:** Some logs may want to restrict who can write to or read from the log. Some others may want to provide a common-good service, and others can restrict writes but not reads. The model is up to the use case.
 
 * **HTTPS:** All public-facing API endpoints (TSA, Tiled Log server) must use HTTPS.
 
