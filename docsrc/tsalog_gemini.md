@@ -178,27 +178,20 @@ This is one of the most critical threats to a timestamping service.
         participant ISBE_Blockchain as "ISBE Blockchain"
         participant Auditor
 
-        box "Attacker's Actions (with compromised key)"
-            Attacker->>Attacker: Creates backdated TimeStampToken (time=T_fraud)
-            Attacker->>DSLog_TSA: Submits corresponding TimeStampReq
-        end
+            Attacker ->> Attacker: Creates backdated TimeStampToken (time=T_fraud)
+            Attacker ->> DSLog_TSA: Submits corresponding TimeStampReq
 
-        box "Log Operation (at current time T_actual)"
-            DSLog_TSA->>Tessera_Log: Add entry to log
-            Tessera_Log-->>DSLog_TSA: Returns logIndex
-            DSLog_TSA-->>Attacker: Returns TimeStampResp
-            Tessera_Log->>ISBE_Blockchain: Periodically anchor new STH (containing entry)
+            DSLog_TSA ->> Tessera_Log: Add entry to log
+            Tessera_Log -->> DSLog_TSA: Returns logIndex
+            DSLog_TSA -->> Attacker: Returns TimeStampResp
+            Tessera_Log ->> ISBE_Blockchain: Periodically anchor new STH (containing entry)
             note right of ISBE_Blockchain: Block timestamp is T_actual
-        end
 
-        box "Auditor Verification (later)"
-            Auditor->>ISBE_Blockchain: Fetch trusted STH and its block time (T_actual)
-            Auditor->>Tessera_Log: Fetch inclusion proof using logIndex
-            Auditor->>Auditor: 1. Verify inclusion proof against STH
-            Auditor->>Auditor: 2. Compare token time (T_fraud) with STH anchor time (T_actual)
-            critical Misbehavior Detected!
-                Auditor->>Auditor: Proof: T_fraud is much earlier than T_actual
-        end
+            Auditor ->> ISBE_Blockchain: Fetch trusted STH and its block time (T_actual)
+            Auditor ->> Tessera_Log: Fetch inclusion proof using logIndex
+            Auditor ->> Auditor: 1. Verify inclusion proof against STH
+            Auditor ->> Auditor: 2. Compare token time (T_fraud) with STH anchor time (T_actual)
+            Auditor ->> Auditor: Proof: T_fraud is much earlier than T_actual
     ```
 
 ### Other Threats and Mitigations
