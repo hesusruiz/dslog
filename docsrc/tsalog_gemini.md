@@ -73,6 +73,35 @@ In summary, DSLog achieves the "best of both worlds": **the high performance and
 
 * **Interoperability:** Built upon widely recognized standards (RFC 3161, C2SP Tiled Logs, C2SP Witness Protocol).
 
+## Log Replication, Availability, and Censorship Resistance
+
+To further enhance the robustness of the ecosystem, a DSLog instance can be replicated by independent, third-party **mirrors**. These mirrors operate by fetching the log's tiles, verifying their consistency against the STHs anchored on the ISBE Blockchain, and serving them to clients. This model, inspired by the [C2SP Transparency Log Mirror Protocol](https://github.com/C2SP/C2SP/blob/main/tlog-mirror.md), provides several key advantages:
+
+* **High Availability and Redundancy:** If the primary log operator's server becomes unavailable, clients can seamlessly switch to fetching log tiles from one or more independent mirrors. This ensures that the verification process is not dependent on a single point of failure.
+
+* **Censorship Resistance:** Mirrors provide a powerful defense against censorship. If a malicious primary operator attempts to hide an entry by refusing to serve its corresponding tiles to a specific user, that user can retrieve the same tiles from a mirror. Since all mirrors are cryptographically bound to the same public history on the blockchain, any attempt by the primary log to present an inconsistent or incomplete view is easily detected.
+
+* **Improved Performance and Scalability:** By distributing the load of serving log tiles across multiple geographically diverse mirrors, the system can serve a larger number of clients with lower latency.
+
+* **Independent Auditing:** Mirrors act as continuous, independent auditors of the primary log, strengthening the overall trust and security of the system.
+
+This replication mechanism is particularly effective for logs containing public or semi-public data. For logs with sensitive data, the decision to allow replication must be balanced with data residency and confidentiality requirements.
+
+## Data Privacy and GDPR Compliance
+
+The DSLog architecture is designed with data privacy regulations like GDPR in mind, particularly addressing the "right to erasure" (Article 17). This is achieved by carefully separating the data layer from the immutable blockchain layer.
+
+* **No Personal Data On-Chain:** The ISBE Blockchain only stores Signed Tree Heads (STHs). These are cryptographic hashes (commitments) of the log's state and contain no personally identifiable information (PII) or raw data from the log entries. They are irreversible and cannot be used to deduce the original content.
+
+* **Pseudonymization by Design:** Clients are responsible for hashing their sensitive data *before* creating the RFC 3161 `TimeStampReq`. The log entry itself is the `TimeStampReq` containing this hash, not the original data. This aligns with the principle of data minimization.
+
+* **Fulfilling the Right to Erasure:**
+    *   Since the Tessera log is stored off-chain in a conventional storage system (e.g., filesystem, S3), individual log entries can be deleted or redacted upon a valid erasure request.
+    *   Deleting a leaf from the Merkle tree will change the STH for all subsequent checkpoints. This means a proof of inclusion for the deleted entry can no longer be generated against future log states, effectively honoring the erasure.
+    *   Crucially, this action **does not invalidate the integrity of the rest of the log**. Proofs for all other entries, anchored by STHs committed to the blockchain *before* the deletion, remain valid. The historical record is preserved, while the specific entry is verifiably removed from the log's present and future states.
+
+This model provides a robust solution for maintaining a tamper-evident, auditable log while remaining compliant with privacy regulations that require the ability to delete personal data. It offers verifiability without the "inescapable permanence" of writing raw data directly to a blockchain.
+
 ## The DSLog Approach: A Hybrid Model
 
 DSLog operates as a "personality" of a transparent log, integrating several key components:
@@ -205,34 +234,6 @@ This is one of the most critical threats to a timestamping service.
 
 * **Entry Omission / Censorship:** If a client receives a `TimeStampResp` with a `logIndex` but can never find the entry in the public log or generate a valid inclusion proof, it serves as evidence of misbehavior. The client can prove they submitted the request and received an acknowledgment, holding the operator accountable.
 
-## Data Privacy and GDPR Compliance
-
-The DSLog architecture is designed with data privacy regulations like GDPR in mind, particularly addressing the "right to erasure" (Article 17). This is achieved by carefully separating the data layer from the immutable blockchain layer.
-
-* **No Personal Data On-Chain:** The ISBE Blockchain only stores Signed Tree Heads (STHs). These are cryptographic hashes (commitments) of the log's state and contain no personally identifiable information (PII) or raw data from the log entries. They are irreversible and cannot be used to deduce the original content.
-
-* **Pseudonymization by Design:** Clients are responsible for hashing their sensitive data *before* creating the RFC 3161 `TimeStampReq`. The log entry itself is the `TimeStampReq` containing this hash, not the original data. This aligns with the principle of data minimization.
-
-* **Fulfilling the Right to Erasure:**
-    *   Since the Tessera log is stored off-chain in a conventional storage system (e.g., filesystem, S3), individual log entries can be deleted or redacted upon a valid erasure request.
-    *   Deleting a leaf from the Merkle tree will change the STH for all subsequent checkpoints. This means a proof of inclusion for the deleted entry can no longer be generated against future log states, effectively honoring the erasure.
-    *   Crucially, this action **does not invalidate the integrity of the rest of the log**. Proofs for all other entries, anchored by STHs committed to the blockchain *before* the deletion, remain valid. The historical record is preserved, while the specific entry is verifiably removed from the log's present and future states.
-
-This model provides a robust solution for maintaining a tamper-evident, auditable log while remaining compliant with privacy regulations that require the ability to delete personal data. It offers verifiability without the "inescapable permanence" of writing raw data directly to a blockchain.
-
-## Log Replication, Availability, and Censorship Resistance
-
-To further enhance the robustness of the ecosystem, a DSLog instance can be replicated by independent, third-party **mirrors**. These mirrors operate by fetching the log's tiles, verifying their consistency against the STHs anchored on the ISBE Blockchain, and serving them to clients. This model, inspired by the [C2SP Transparency Log Mirror Protocol](https://github.com/C2SP/C2SP/blob/main/tlog-mirror.md), provides several key advantages:
-
-* **High Availability and Redundancy:** If the primary log operator's server becomes unavailable, clients can seamlessly switch to fetching log tiles from one or more independent mirrors. This ensures that the verification process is not dependent on a single point of failure.
-
-* **Censorship Resistance:** Mirrors provide a powerful defense against censorship. If a malicious primary operator attempts to hide an entry by refusing to serve its corresponding tiles to a specific user, that user can retrieve the same tiles from a mirror. Since all mirrors are cryptographically bound to the same public history on the blockchain, any attempt by the primary log to present an inconsistent or incomplete view is easily detected.
-
-* **Improved Performance and Scalability:** By distributing the load of serving log tiles across multiple geographically diverse mirrors, the system can serve a larger number of clients with lower latency.
-
-* **Independent Auditing:** Mirrors act as continuous, independent auditors of the primary log, strengthening the overall trust and security of the system.
-
-This replication mechanism is particularly effective for logs containing public or semi-public data. For logs with sensitive data, the decision to allow replication must be balanced with data residency and confidentiality requirements.
 
 
 ## Pathway to eIDAS Qualified Timestamping Services
