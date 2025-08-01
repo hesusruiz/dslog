@@ -1,316 +1,187 @@
+// Copyright 2024 The Tessera authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// posix runs a web server that allows new entries to be POSTed to
+// a tlog-tiles log stored on a posix filesystem. It allows to run
+// conformance/compliance/performance tests and showing how to use
+// the Tessera POSIX storage implmentation.
 package main
 
 import (
 	"context"
-	"crypto"
-	"crypto/rand"
-	"crypto/x509"
-	"crypto/rsa" // For rsa.GenerateKey
-	"crypto/sha256"
-	"encoding/pem"
+	"flag"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
-	"github.com/digitorus/timestamp"
-	"github.com/transparency-dev/tessera/client"
+	"golang.org/x/mod/sumdb/note"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
+
+	"github.com/transparency-dev/tessera"
 	"github.com/transparency-dev/tessera/storage/posix"
-	"github.com/transparency-dev/tessera/types" // For STH types
-
-	"go-tsa-tessera/pkg/tsaext"
-)
-
-const (
-	tsaCertPath          = "tsa.crt"
-	tsaKeyPath           = "tsa.key"
-	logStoragePath       = "./tessera-log"          // Directory for Tessera POSIX storage
-	logCheckpointKeyPath = "log_checkpoint.key"     // Key for signing STHs
-	witnessURL           = "http://localhost:8081/add-checkpoint" // Placeholder for ISBE Witness endpoint
-	checkpointInterval   = 30 * time.Second         // How often to publish checkpoints (for demonstration)
+	badger_as "github.com/transparency-dev/tessera/storage/posix/antispam"
+	"k8s.io/klog/v2"
 )
 
 var (
-	tsaCert          *x509.Certificate
-	tsaPrivKey       crypto.Signer
-	tesseraLog       *client.Log    // Tessera log client
-	checkpointSigner crypto.Signer  // Key for signing Tessera STHs
+	storageDir                = flag.String("storage_dir", "", "Root directory to store log data.")
+	listen                    = flag.String("listen", ":2025", "Address:port to listen on")
+	privKeyFile               = flag.String("private_key", "", "Location of private key file. If unset, uses the contents of the LOG_PRIVATE_KEY environment variable.")
+	persistentAntispam        = flag.Bool("antispam", false, "EXPERIMENTAL: Set to true to enable Badger-based persistent antispam storage")
+	additionalPrivateKeyFiles = []string{}
 )
 
-func loadTSACredentials() error {
-	// ... (Same as before) ...
-	certPEM, err := os.ReadFile(tsaCertPath)
-	if err != nil {
-		return fmt.Errorf("failed to read TSA certificate: %w", err)
-	}
-	keyPEM, err := os.ReadFile(tsaKeyPath)
-	if err != nil {
-		return fmt.Errorf("failed to read TSA private key: %w", err)
-	}
-
-	block, _ := pem.Decode(certPEM)
-	if block == nil || block.Type != "CERTIFICATE" {
-		return fmt.Errorf("failed to decode PEM block containing certificate")
-	}
-	tsaCert, err = x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return fmt.Errorf("failed to parse certificate: %w", err)
-	}
-
-	block, _ = pem.Decode(keyPEM)
-	if block == nil || (block.Type != "RSA PRIVATE KEY" && block.Type != "EC PRIVATE KEY") {
-		return fmt.Errorf("failed to decode PEM block containing private key")
-	}
-	privKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		privKey, err = x509.ParsePKCS1PrivateKey(block.Bytes)
-		if err != nil {
-			return fmt.Errorf("failed to parse private key: %w", err)
-		}
-	}
-	var ok bool
-	tsaPrivKey, ok = privKey.(crypto.Signer)
-	if !ok {
-		return fmt.Errorf("private key is not a crypto.Signer")
-	}
-	return nil
-}
-
-func loadCheckpointSigner() error {
-    // ... (Same as before) ...
-	keyPEM, err := os.ReadFile(logCheckpointKeyPath)
-	if err != nil {
-		log.Printf("Warning: Checkpoint signing key not found at %s. Generating a new one for development.", logCheckpointKeyPath)
-		priv, err := rsa.GenerateKey(rand.Reader, 2048)
-		if err != nil {
-			return fmt.Errorf("failed to generate RSA key for checkpoint signer: %w", err)
-		}
-		derBytes, err := x509.MarshalPKCS8PrivateKey(priv)
-		if err != nil {
-			return fmt.Errorf("failed to marshal private key for checkpoint signer: %w", err)
-		}
-		pemBlock := &pem.Block{Type: "PRIVATE KEY", Bytes: derBytes}
-		if err := os.WriteFile(logCheckpointKeyPath, pem.EncodeToMemory(pemBlock), 0600); err != nil {
-			return fmt.Errorf("failed to write checkpoint private key: %w", err)
-		}
-		checkpointSigner = priv
+func init() {
+	flag.Func("additional_private_key", "Location of addition private key, may be specified multiple times", func(s string) error {
+		additionalPrivateKeyFiles = append(additionalPrivateKeyFiles, s)
 		return nil
-	}
-
-	block, _ := pem.Decode(keyPEM)
-	if block == nil || (block.Type != "RSA PRIVATE KEY" && block.Type != "EC PRIVATE KEY") {
-		return fmt.Errorf("failed to decode PEM block containing checkpoint private key")
-	}
-	privKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		privKey, err = x509.ParsePKCS1PrivateKey(block.Bytes)
-		if err != nil {
-			return fmt.Errorf("failed to parse checkpoint private key: %w", err)
-		}
-	}
-	var ok bool
-	checkpointSigner, ok = privKey.(crypto.Signer)
-	if !ok {
-		return fmt.Errorf("checkpoint private key is not a crypto.Signer")
-	}
-	return nil
+	})
 }
 
-func initializeTesseraLog() error {
-	// Create POSIX storage
-	s, err := posix.New(logStoragePath)
-	if err != nil {
-		return fmt.Errorf("failed to create POSIX storage: %w", err)
-	}
-
-	// Configure Tessera to use our checkpointSigner
-	tesseraLog, err = client.NewLog(s,
-		client.WithBatchSize(1), // Process entries immediately for quick index return
-		client.WithCheckpointSigner(checkpointSigner, crypto.SHA256), // Use SHA256 for signing STHs
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create Tessera log: %w", err)
-	}
-
-	log.Printf("Tessera log initialized at: %s", logStoragePath)
-	return nil
-}
-
-// publishLatestCheckpoint periodically fetches the latest STH and publishes it to the witness.
-func publishLatestCheckpoint() {
-	ticker := time.NewTicker(checkpointInterval)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		sth, err := tesseraLog.LatestCheckpoint(ctx)
-		if err != nil {
-			log.Printf("Error getting latest checkpoint from Tessera: %v", err)
-			cancel() // Ensure context is cancelled on error
-			continue
-		}
-		cancel() // Cancel context after successful retrieval
-
-		if err := submitCheckpointToWitness(sth); err != nil {
-			log.Printf("Error submitting checkpoint to witness: %v", err)
-		} else {
-			log.Printf("Checkpoint published to witness: treeSize=%d, rootHash=%x", sth.Size, sth.RootHash)
-		}
+func addCacheHeaders(value string, fs http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Cache-Control", value)
+		fs.ServeHTTP(w, r)
 	}
 }
-
-// submitCheckpointToWitness sends the STH to the ISBE Witness component.
-// This is a conceptual implementation and needs to be replaced with actual
-// HTTP client code conforming to the Transparency Log Witness Protocol.
-func submitCheckpointToWitness(sth *types.SignedTreeHead) error {
-	// This is where you would implement the client-side of the Transparency Log Witness Protocol.
-	// 1. Marshal the STH and relevant log metadata into the "Transparency Log Checkpoint" format
-	//    defined at https://github.com/C2SP/C2SP/blob/main/tlog-witness.md.
-	// 2. Make an HTTP POST request to the witnessURL, sending the marshaled checkpoint.
-	// 3. Handle the witness's response (e.g., timestamped cosignature) and verify it.
-
-	// Example placeholder for the data format to send to the witness.
-	// You'd need a struct that matches the witness protocol's input, e.g.:
-	/*
-	type WitnessCheckpointRequest struct {
-		LogID        []byte `json:"log_id"` // Hash of the log's public key
-		SignedTreeHead *types.SignedTreeHead `json:"signed_tree_head"`
-		// ... potentially other metadata like log's public key
-	}
-	reqData := WitnessCheckpointRequest{
-		// Populate this from your log's config and the STH
-		// Example: LogID should be a consistent identifier for *this* log instance
-		SignedTreeHead: sth,
-	}
-	jsonData, err := json.Marshal(reqData)
-	if err != nil { return fmt.Errorf("failed to marshal witness request: %w", err) }
-
-	resp, err := http.Post(witnessURL, "application/json", bytes.NewReader(jsonData))
-	if err != nil { return fmt.Errorf("failed to send checkpoint to witness: %w", err) }
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("witness returned non-OK status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-	// Parse and verify the cosignature from the witness response if needed
-	*/
-
-	log.Printf("Simulating submission of checkpoint to ISBE Witness: STH (TreeSize: %d, RootHash: %x)", sth.Size, sth.RootHash)
-	return nil // Simulate success
-}
-
-func tsaHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	reqBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		log.Printf("Error reading request body: %v", err)
-		http.Error(w, "Bad Request", http.StatusBadRequest)
-		return
-	}
-
-	tsReq, err := timestamp.ParseRequest(reqBytes)
-	if err != nil {
-		log.Printf("Error parsing TimeStampReq: %v", err)
-		respErr, _ := timestamp.CreateResponse(nil, nil,
-			timestamp.WithStatus(timestamp.PKIStatusRejection, timestamp.FailureInfoBadRequest),
-		)
-		w.Header().Set("Content-Type", "application/timestamp-reply")
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write(respErr)
-		return
-	}
-
-	log.Printf("Received TimeStampReq for message imprint: %x (Nonce: %s)",
-		tsReq.MessageImprint.HashedMessage, tsReq.Nonce.String())
-
-	// The entry in the log is the client's original RFC 3161 request.
-	entry := client.NewEntry(reqBytes)
-
-	logIndex, err := tesseraLog.Add(context.Background(), entry)
-	if err != nil {
-		log.Printf("Error adding entry to Tessera log: %v", err)
-		respErr, _ := timestamp.CreateResponse(nil, nil,
-			timestamp.WithStatus(timestamp.PKIStatusRejection, timestamp.FailureInfoSystemFailure),
-		)
-		w.Header().Set("Content-Type", "application/timestamp-reply")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(respErr)
-		return
-	}
-	log.Printf("Request logged to Tessera at index: %d", logIndex)
-
-	oid, extBytes, err := tsaext.NewLogIndexExtension(logIndex)
-	if err != nil {
-		log.Printf("Error creating log index extension: %v", err)
-		respErr, _ := timestamp.CreateResponse(nil, nil,
-			timestamp.WithStatus(timestamp.PKIStatusRejection, timestamp.FailureInfoSystemFailure),
-		)
-		w.Header().Set("Content-Type", "application/timestamp-reply")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(respErr)
-		return
-	}
-
-	opts := &timestamp.ResponseOpts{
-		Extensions: []x509.Extension{
-			{
-				Id:       oid,
-				Critical: false,
-				Value:    extBytes,
-			},
-		},
-	}
-
-	tsResp, err := tsReq.CreateResponseWithOpts(tsaCert, tsaPrivKey, opts)
-	if err != nil {
-		log.Printf("Error creating TimeStampResp: %v", err)
-		respErr, _ := timestamp.CreateResponse(nil, nil,
-			timestamp.WithStatus(timestamp.PKIStatusRejection, timestamp.FailureInfoSystemFailure),
-		)
-		w.Header().Set("Content-Type", "application/timestamp-reply")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(respErr)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/timestamp-reply")
-	w.Write(tsResp)
-}
-
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	klog.InitFlags(nil)
+	flag.Parse()
+	ctx := context.Background()
 
-	if err := loadTSACredentials(); err != nil {
-		log.Fatalf("Failed to load TSA credentials: %v", err)
+	// Gather the info needed for reading/writing checkpoints
+	s, a := getSignersOrDie()
+
+	// Create the Tessera POSIX storage, using the directory from the --storage_dir flag
+	driver, err := posix.New(ctx, posix.Config{Path: *storageDir})
+	if err != nil {
+		klog.Exitf("Failed to construct storage: %v", err)
 	}
-	log.Println("TSA credentials loaded successfully.")
-
-    if err := loadCheckpointSigner(); err != nil {
-        log.Fatalf("Failed to load/generate checkpoint signer: %v", err)
-    }
-    log.Println("Checkpoint signer loaded/generated.")
-
-	if err := initializeTesseraLog(); err != nil {
-		log.Fatalf("Failed to initialize Tessera log: %v", err)
+	var antispam tessera.Antispam
+	// Persistent antispam is currently experimental, so there's no terraform or documentation yet!
+	if *persistentAntispam {
+		asOpts := badger_as.AntispamOpts{}
+		antispam, err = badger_as.NewAntispam(ctx, filepath.Join(*storageDir, ".state", "antispam"), asOpts)
+		if err != nil {
+			klog.Exitf("Failed to create new Badger antispam storage: %v", err)
+		}
 	}
-	log.Println("Tessera log initialized.")
 
-	// Start a goroutine to periodically publish checkpoints
-	go publishLatestCheckpoint()
-
-	http.HandleFunc("/tsa", tsaHandler)
-
-	addr := ":8080"
-	log.Printf("TSA server listening on %s", addr)
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	appender, shutdown, _, err := tessera.NewAppender(ctx, driver, tessera.NewAppendOptions().
+		WithCheckpointSigner(s, a...).
+		WithBatching(256, time.Second).
+		WithAntispam(256, antispam))
+	if err != nil {
+		klog.Exit(err)
 	}
+
+	// Define a handler for /add that accepts POST requests and adds the POST body to the log
+	http.HandleFunc("POST /add", func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		idx, err := appender.Add(r.Context(), tessera.NewEntry(b))()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(err.Error()))
+			return
+		}
+		if _, err := fmt.Fprintf(w, "%d", idx.Index); err != nil {
+			klog.Errorf("/add: %v", err)
+			return
+		}
+	})
+
+	// Proxy all GET requests to the filesystem as a lightweight file server.
+	// This makes it easier to test this implementation from another machine.
+	fs := http.FileServer(http.Dir(*storageDir))
+	http.Handle("GET /checkpoint", addCacheHeaders("no-cache", fs))
+	http.Handle("GET /tile/", addCacheHeaders("max-age=31536000, immutable", fs))
+	http.Handle("GET /entries/", fs)
+
+	// TODO(mhutchinson): Change the listen flag to just a port, or fix up this address formatting
+	klog.Infof("Environment variables useful for accessing this log:\n"+
+		"export WRITE_URL=http://localhost%s/ \n"+
+		"export READ_URL=http://localhost%s/ \n", *listen, *listen)
+	// Run the HTTP server with the single handler and block until this is terminated
+	h2s := &http2.Server{}
+	h1s := &http.Server{
+		Addr:    *listen,
+		Handler: h2c.NewHandler(http.DefaultServeMux, h2s),
+	}
+	if err := http2.ConfigureServer(h1s, h2s); err != nil {
+		klog.Exitf("http2.ConfigureServer: %v", err)
+	}
+
+	if err := h1s.ListenAndServe(); err != nil {
+		if err := shutdown(ctx); err != nil {
+			klog.Exit(err)
+		}
+		klog.Exitf("ListenAndServe: %v", err)
+	}
+}
+
+func getSignersOrDie() (note.Signer, []note.Signer) {
+	s := getSignerOrDie()
+	a := []note.Signer{}
+	for _, p := range additionalPrivateKeyFiles {
+		kr, err := getKeyFile(p)
+		if err != nil {
+			klog.Exitf("Unable to get additional private key from %q: %v", p, err)
+		}
+		k, err := note.NewSigner(kr)
+		if err != nil {
+			klog.Exitf("Failed to instantiate signer from %q: %v", p, err)
+		}
+		a = append(a, k)
+	}
+	return s, a
+}
+
+// Read log private key from file or environment variable
+func getSignerOrDie() note.Signer {
+	var privKey string
+	var err error
+	if len(*privKeyFile) > 0 {
+		privKey, err = getKeyFile(*privKeyFile)
+		if err != nil {
+			klog.Exitf("Unable to get private key: %q", err)
+		}
+	} else {
+		privKey = os.Getenv("LOG_PRIVATE_KEY")
+		if len(privKey) == 0 {
+			klog.Exit("Supply private key file path using --private_key or set LOG_PRIVATE_KEY environment variable")
+		}
+	}
+	s, err := note.NewSigner(privKey)
+	if err != nil {
+		klog.Exitf("Failed to instantiate signer: %q", err)
+	}
+	return s
+}
+
+func getKeyFile(path string) (string, error) {
+	k, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read key file: %w", err)
+	}
+	return string(k), nil
 }
