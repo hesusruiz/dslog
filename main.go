@@ -1,4 +1,4 @@
-// Copyright 2024 The Tessera authors. All Rights Reserved.
+// Copyright 2025 Jesus Ruiz. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// posix runs a web server that allows new entries to be POSTed to
-// a tlog-tiles log stored on a posix filesystem. It allows to run
-// conformance/compliance/performance tests and showing how to use
-// the Tessera POSIX storage implmentation.
+// This program is a timestamping service that implements the established  [**RFC 3161 Time-Stamp Protocol (TSP)**](https://www.rfc-editor.org/rfc/rfc3161) with modern [**Tiled Transparency Logs**](https://github.com/C2SP/C2SP/blob/main/tlog-tiles.md) and a **public-permissioned blockchain** (ISBE Blockchain, based on BESU) to create a highly robust, verifiable, and globally consistent timestamping service.
+// This hybrid approach addresses critical limitations of traditional timestamping, providing strong guarantees of data existence, inclusion, and immutability without requiring blind trust in any single operator.
 package main
 
 import (
@@ -23,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -91,6 +90,18 @@ func main() {
 		klog.Exit(err)
 	}
 
+	// Generate a self-signed certificate and private key for the server.
+	// TODO: use a real eIDAS certificate and sign securely, either with HSM or via Remote CSC API 2.0.
+	cert, key, err := generateSelfSignedCert()
+	if err != nil {
+		log.Fatalf("Failed to generate server certificate: %v", err)
+	}
+
+	// Create an RFC3161 handler function with the generated cert and key
+	http.HandleFunc("POST /", func(w http.ResponseWriter, r *http.Request) {
+		TimestampHandler(w, r, appender, cert, key)
+	})
+
 	// Define a handler for /add that accepts POST requests and adds the POST body to the log
 	http.HandleFunc("POST /add", func(w http.ResponseWriter, r *http.Request) {
 		b, err := io.ReadAll(r.Body)
@@ -117,10 +128,18 @@ func main() {
 	http.Handle("GET /tile/", addCacheHeaders("max-age=31536000, immutable", fs))
 	http.Handle("GET /entries/", fs)
 
+	log.Println("RFC 3161 Timestamp Server listening on :8080...")
+	log.Println("To test, use a tool like 'openssl' or 'curl' to send a POST request with an RFC 3161 query.")
+	log.Println("Example curl command (requires a file to hash, e.g., my_file.txt):")
+	log.Println("  openssl ts -query -data my_file.txt -no_nonce -sha256 -out ts_request.tsq")
+	log.Println("  curl -X POST -H 'Content-Type: application/timestamp-query' --data-binary @ts_request.tsq http://localhost:8080 > ts_response.tsr")
+
 	// TODO(mhutchinson): Change the listen flag to just a port, or fix up this address formatting
 	klog.Infof("Environment variables useful for accessing this log:\n"+
 		"export WRITE_URL=http://localhost%s/ \n"+
-		"export READ_URL=http://localhost%s/ \n", *listen, *listen)
+		"export READ_URL=http://localhost%s/ \n",
+		*listen, *listen)
+
 	// Run the HTTP server with the single handler and block until this is terminated
 	h2s := &http2.Server{}
 	h1s := &http.Server{
