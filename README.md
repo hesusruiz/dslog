@@ -126,18 +126,18 @@ flowchart TD
   D --> E[Construct Merkle Leaf]
   E --> F[Submit Leaf to Tessera Log]
   F --> G[Tessera returns Log Index]
-  G --> H[Create TimeStampResp <br/> with\nLog Index Extension]
+  G --> H[Create TimeStampResp <br/> with<br/>Log Index Extension]
   H --> I[Return TimeStampResp\nto Client]
 
   subgraph Log Publishing
     F --> J[Log Tiles Stored]
     K[Periodic Signed Tree Head] --> L[ISBE Witness]
-    L --> M[Anchor Checkpoint\non Blockchain]
+    L --> M[Anchor Checkpoint<br/>on Blockchain]
   end
 
   subgraph Inclusion Proof Verification
     N[Client retrieves tiles] --> O[Client builds Merkle Proof]
-    O --> P[Verify Proof against\nBlockchain anchored STH]
+    O --> P[Verify Proof against<br/>Blockchain anchored STH]
   end
 
   I --> N
