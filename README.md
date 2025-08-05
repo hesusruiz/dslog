@@ -126,7 +126,7 @@ flowchart TD
   D --> E[Construct Merkle Leaf]
   E --> F[Submit Leaf to Tessera Log]
   F --> G[Tessera returns Log Index]
-  G --> H[Create TimeStampResp\nwith\nLog Index Extension]
+  G --> H[Create TimeStampResp <br/> with\nLog Index Extension]
   H --> I[Return TimeStampResp\nto Client]
 
   subgraph Log Publishing
