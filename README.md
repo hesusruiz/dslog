@@ -122,22 +122,22 @@ The timestamping service operates as a "personality" of a transparent log, integ
 flowchart TD
   A[Client] --> B[Submit RFC3161 Timestamp Request]
   B --> C[TSA Server]
-  C --> D[Parse TimeStampReq with digitorus timestamp]
+  C --> D[Parse TimeStampReq]
   D --> E[Construct Merkle Leaf]
   E --> F[Submit Leaf to Tessera Log]
   F --> G[Tessera returns Log Index]
-  G --> H[Create TimeStampResp with Log Index Extension]
-  H --> I[Return TimeStampResp to Client]
+  G --> H[Create TimeStampResp\nwith\nLog Index Extension]
+  H --> I[Return TimeStampResp\nto Client]
 
   subgraph Log Publishing
     F --> J[Log Tiles Stored]
     K[Periodic Signed Tree Head] --> L[ISBE Witness]
-    L --> M[Anchor Checkpoint on Blockchain]
+    L --> M[Anchor Checkpoint\non Blockchain]
   end
 
   subgraph Inclusion Proof Verification
     N[Client retrieves tiles] --> O[Client builds Merkle Proof]
-    O --> P[Verify Proof against Blockchain anchored STH]
+    O --> P[Verify Proof against\nBlockchain anchored STH]
   end
 
   I --> N
