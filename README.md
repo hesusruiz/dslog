@@ -127,7 +127,7 @@ flowchart TD
   E --> F[Submit Leaf to Tessera Log]
   F --> G[Tessera returns Log Index]
   G --> H[Create TimeStampResp <br/> with<br/>Log Index Extension]
-  H --> I[Return TimeStampResp\nto Client]
+  H --> I[Return TimeStampResp<br/>to Client]
 
   subgraph Log Publishing
     F --> J[Log Tiles Stored]
