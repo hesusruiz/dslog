@@ -1,4 +1,4 @@
-# DSLog (Decentralized Scalable Log) - A Verifiable Timestamping Service with Global Consistency
+# DSLog (Decentralized Scalable Log) - A scalable Verifiable Timestamping Service with Global Consistency and Byzantine resistance
 
 ## Overview
 
