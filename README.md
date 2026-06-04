@@ -16,13 +16,13 @@ Traditional timestamping services, while providing proof of existence at a speci
 
 2. **Proof of Inclusion:** Provide verifiable proof that a data entry was not only timestamped but also permanently recorded in a tamper-evident log, which can be subject to private or public auditability, depending on the use case.
 
-3. **Non-Repudiation for Log Operators:** Ensure that the log operator cannot deny the logging of an entry once it has been accepted and an index returned. This holds the operator accountable for censorship or selective logging.
+3. **Non-Repudiation for Log Operators:** Ensure that the log operator cannot deny the logging of an entry once it has been accepted and an index returned. This holds the operator accountable for malicious actions like censorship or selective logging.
 
-4. **Global Consistency:** Eliminate the risk of "split-view attacks," where a malicious log presents different views of its contents to different users. This is achieved by anchoring the log's state to a Byzantine-tolerant blockchain.
+4. **Global Consistency:** Eliminate the risk of "split-view attacks," where a malicious log presents different views of its contents to different users. This is achieved by periodically anchoring the log's state to a Byzantine-tolerant blockchain.
 
 5. **Scalable Verification:** Enable clients to efficiently verify proofs of inclusion without requiring the log server to generate them on demand, leveraging the Tiled Transparency Logs API to provide massive scalability for verification.
 
-6. **Trust Minimization:** Reduce the need for absolute trust in any single entity (TSA or log operator) by relying on cryptographic proofs and a decentralized, verifiable ledger.
+6. **Trust Minimization:** Reduce the need for absolute trust in any single entity (TSA or log operator) by relying on cryptographic proofs and a decentralized, verifiable ledger. The need for trust is displaced to the ledger, but the added value of this system is that it supports massive scalability without requiring all transactions to be written to the ledger.
 
 ## Beyond Total Global Order: Why Partial Order is a Better Fit for Traceability
 
